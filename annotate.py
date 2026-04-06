@@ -218,8 +218,9 @@ def annotateImagesInDirectory(rcnn, directory_path, labels, class_names,
                     img_width=img_width, img_height=img_height,
                     label_to_id=label_to_id)
                 if display_masked:
-                    display_instances(img, result['rois'], result['masks'], result['class_ids'],
-                                  class_names, result['scores'])
+                    for lbl in found_labels:
+                        display_instances(img, result['rois'], result['masks'], result['class_ids'],
+                                      class_names, class_names.index(lbl), result['scores'])
             else:
                 print("Label not found in image: " + fileName)
         except Exception as e:
