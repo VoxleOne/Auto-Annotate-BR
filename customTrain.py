@@ -6,7 +6,7 @@ import numpy as np
 import skimage.draw
 
 # Root directory of the project
-ROOT_DIR = os.path.abspath("../../")
+ROOT_DIR = os.path.abspath("./")
 
 # Import Mask RCNN
 sys.path.append(ROOT_DIR)  # To find local version of the library
@@ -134,15 +134,15 @@ class CustomDataset(utils.Dataset):
 
         # Return mask, and array of class IDs of each instance. Since we have
         # one class ID only, we return an array of 1s
-        return mask.astype(np.bool), np.ones([mask.shape[-1]], dtype=np.int32)
+        return mask.astype(bool), np.ones([mask.shape[-1]], dtype=np.int32)
 
     def image_reference(self, image_id):
         """Return the path of the image."""
         info = self.image_info[image_id]
-        if info["source"] == "Bird House":
+        if info["source"] == "customLabel":
             return info["path"]
         else:
-            super(self.__class__, self).image_reference(image_id)
+            return super(self.__class__, self).image_reference(image_id)
 
 
 def train(model):
@@ -181,7 +181,7 @@ if __name__ == '__main__':
         description='Train Mask R-CNN to detect custom objects.')
     parser.add_argument("command",
                         metavar="<command>",
-                        help="'train' or 'splash'")
+                        help="'train'")
     parser.add_argument('--dataset', required=False,
                         metavar="/path/to/custom/dataset/",
                         help='Directory of the Custom dataset')
@@ -192,20 +192,14 @@ if __name__ == '__main__':
                         default=DEFAULT_LOGS_DIR,
                         metavar="/path/to/logs/",
                         help='Logs and checkpoints directory (default=logs/)')
-    parser.add_argument('--image', required=False,
-                        metavar="path or URL to image",
-                        help='Image to apply the color splash effect on')
-    parser.add_argument('--video', required=False,
-                        metavar="path or URL to video",
-                        help='Video to apply the color splash effect on')
     args = parser.parse_args()
 
     # Validate arguments
     if args.command == "train":
-        assert args.dataset, "Argument --dataset is required for training"
-    elif args.command == "splash":
-        assert args.image or args.video,\
-               "Provide --image or --video to apply color splash"
+        if not args.dataset:
+            parser.error("Argument --dataset is required for training")
+    else:
+        parser.error("'{}' is not recognized. Use 'train'".format(args.command))
 
     print("Weights: ", args.weights)
     print("Dataset: ", args.dataset)
@@ -247,9 +241,8 @@ if __name__ == '__main__':
     else:
         model.load_weights(weights_path, by_name=True)
 
-    # Train or evaluate
+    # Train
     if args.command == "train":
         train(model)
     else:
-        print("'{}' is not recognized. "
-              "Use 'train' or 'splash'".format(args.command))
+        parser.error("'{}' is not recognized. Use 'train'".format(args.command))

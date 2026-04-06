@@ -1,34 +1,37 @@
 import numpy as np
-from skimage.measure import find_contours
 from shapely.geometry import Polygon, MultiPolygon 
 from skimage import measure   
 import json
 import os
-from keras.preprocessing.image import load_img
-from keras.preprocessing.image import img_to_array
+import xml.etree.ElementTree as ET
+from xml.dom import minidom
+from tensorflow.keras.preprocessing.image import load_img
+from tensorflow.keras.preprocessing.image import img_to_array
 from mrcnn import utils
 from mrcnn.visualize import display_instances
 from mrcnn.config import Config
 from mrcnn.model import MaskRCNN
-import matplotlib.pyplot as plt
 import tensorflow as tf
-tf.logging.set_verbosity(tf.logging.ERROR)
+tf.get_logger().setLevel('ERROR')
 
 
-def annotateResult(result, image_name, label):
+def annotateResult(result, image_name, labels, class_names):
+    """Annotate a single result for one or more labels."""
     n = len(result['class_ids'])
     annotations = []
     annotationId = 1
     for i in range(n):
-        if class_names[result['class_ids'][i]] == label:
+        detected_label = class_names[result['class_ids'][i]]
+        if detected_label in labels:
             annotation = create_sub_mask_annotation(result['masks'][:, :, i], result['rois'][i],
-                                                    annotationId, result['class_ids'][i], image_name)
+                                                    annotationId, result['class_ids'][i], image_name,
+                                                    class_names)
             annotations.append(annotation)
             annotationId += 1
     return annotations
 
 
-def create_sub_mask_annotation(sub_mask, bounding_box, annotationId, classId, image_name):
+def create_sub_mask_annotation(sub_mask, bounding_box, annotationId, classId, image_name, class_names):
     # Find contours (boundary lines) around each sub-mask
     contours = measure.find_contours(sub_mask, 0.5, positive_orientation='low')
 
@@ -68,39 +71,160 @@ def create_sub_mask_annotation(sub_mask, bounding_box, annotationId, classId, im
 
 
 
-def writeToJSONFile(path, fileName, data):
+def writeToJSONFile(path, fileName, data, overwrite=True):
     fileName = fileName.split(".")[0]
-    filePathNameWExt =  path + '/' + fileName + '.json'
+    filePathNameWExt = os.path.join(path, fileName + '.json')
+    if not overwrite and os.path.exists(filePathNameWExt):
+        print("Skipping (file exists): " + filePathNameWExt)
+        return
     with open(filePathNameWExt, 'w') as fp:
         json.dump(data, fp)
 
 
-def annotateAndSaveAnnotations(r, directory, image_name, label):
-    annotationsJson = annotateResult(r, image_name, label)
-    writeToJSONFile(directory, image_name, annotationsJson)
+def writeCocoJSON(path, fileName, annotations, img_width, img_height):
+    """Write annotations in COCO JSON format."""
+    fileName = fileName.split(".")[0]
+    filePathNameWExt = os.path.join(path, fileName + '_coco.json')
+    coco = {
+        "images": [{
+            "id": 1,
+            "file_name": fileName,
+            "width": img_width,
+            "height": img_height,
+        }],
+        "annotations": [],
+        "categories": []
+    }
+    category_ids = {}
+    for ann in annotations:
+        label = ann['label']
+        if label not in category_ids:
+            cat_id = len(category_ids) + 1
+            category_ids[label] = cat_id
+            coco["categories"].append({"id": cat_id, "name": label})
+        coco_ann = {
+            "id": ann['id'],
+            "image_id": 1,
+            "category_id": category_ids[label],
+            "bbox": list(ann['bbox']),
+            "segmentation": ann['segmentation'],
+            "area": ann['bbox'][2] * ann['bbox'][3],
+            "iscrowd": 0,
+        }
+        coco["annotations"].append(coco_ann)
+    with open(filePathNameWExt, 'w') as fp:
+        json.dump(coco, fp)
 
 
-def annotateImagesInDirectory(rcnn, directory_path, label):
-    for fileName in os.listdir(directory_path):
-        if fileName.endswith(".jpg") or fileName.endswith(".jpeg") or fileName.endswith(".png") or fileName.endswith(".tif") or fileName.endswith(".tiff"):
-        # load image
+def writeVocXML(path, fileName, annotations, img_width, img_height):
+    """Write annotations in Pascal VOC XML format."""
+    baseName = fileName.split(".")[0]
+    root = ET.Element("annotation")
+    ET.SubElement(root, "filename").text = fileName
+    size = ET.SubElement(root, "size")
+    ET.SubElement(size, "width").text = str(img_width)
+    ET.SubElement(size, "height").text = str(img_height)
+    ET.SubElement(size, "depth").text = "3"
+
+    for ann in annotations:
+        obj = ET.SubElement(root, "object")
+        ET.SubElement(obj, "name").text = ann['label']
+        bndbox = ET.SubElement(obj, "bndbox")
+        x, y, w, h = ann['bbox']
+        ET.SubElement(bndbox, "xmin").text = str(int(x))
+        ET.SubElement(bndbox, "ymin").text = str(int(y))
+        ET.SubElement(bndbox, "xmax").text = str(int(x + w))
+        ET.SubElement(bndbox, "ymax").text = str(int(y + h))
+
+    xml_str = minidom.parseString(ET.tostring(root)).toprettyxml(indent="  ")
+    filePathNameWExt = os.path.join(path, baseName + '.xml')
+    with open(filePathNameWExt, 'w') as fp:
+        fp.write(xml_str)
+
+
+def writeYoloTxt(path, fileName, annotations, img_width, img_height, label_to_id):
+    """Write annotations in YOLO .txt format (class_id cx cy w h, normalized)."""
+    baseName = fileName.split(".")[0]
+    filePathNameWExt = os.path.join(path, baseName + '.txt')
+    lines = []
+    for ann in annotations:
+        class_id = label_to_id.get(ann['label'], 0)
+        x, y, w, h = ann['bbox']
+        cx = (x + w / 2.0) / img_width
+        cy = (y + h / 2.0) / img_height
+        nw = w / img_width
+        nh = h / img_height
+        lines.append("{} {:.6f} {:.6f} {:.6f} {:.6f}".format(class_id, cx, cy, nw, nh))
+    with open(filePathNameWExt, 'w') as fp:
+        fp.write("\n".join(lines))
+
+
+def annotateAndSaveAnnotations(r, directory, image_name, labels, class_names,
+                               overwrite=True, output_format="auto-annotate",
+                               img_width=0, img_height=0, label_to_id=None):
+    annotationsJson = annotateResult(r, image_name, labels, class_names)
+    if output_format == "coco":
+        writeCocoJSON(directory, image_name, annotationsJson, img_width, img_height)
+    elif output_format == "voc":
+        writeVocXML(directory, image_name, annotationsJson, img_width, img_height)
+    elif output_format == "yolo":
+        writeYoloTxt(directory, image_name, annotationsJson, img_width, img_height,
+                     label_to_id or {})
+    else:
+        writeToJSONFile(directory, image_name, annotationsJson, overwrite=overwrite)
+
+
+def annotateImagesInDirectory(rcnn, directory_path, labels, class_names,
+                              display_masked=False, overwrite=True,
+                              output_format="auto-annotate"):
+    try:
+        from tqdm import tqdm
+        has_tqdm = True
+    except ImportError:
+        has_tqdm = False
+
+    image_files = [
+        f for f in sorted(os.listdir(directory_path))
+        if f.lower().endswith((".jpg", ".jpeg", ".png", ".tif", ".tiff"))
+    ]
+
+    # Build label-to-id mapping for YOLO format
+    label_to_id = {label: idx for idx, label in enumerate(labels)}
+
+    iterator = tqdm(image_files, desc="Annotating") if has_tqdm else image_files
+    for fileName in iterator:
+        try:
+            # load image
             print("Evaluating Image: " + fileName)
-            img = load_img(directory_path+"/"+fileName)
+            img = load_img(os.path.join(directory_path, fileName))
             img = img_to_array(img)
+            img_height, img_width = img.shape[:2]
             # make prediction
             results = rcnn.detect([img], verbose=0)
             # get dictionary for first prediction
             result = results[0]
 
-            if class_names.index(label) in result['class_ids']:
-                print("Label found in image: " + fileName)
+            # Check if any of the requested labels are found
+            found_labels = [
+                l for l in labels
+                if class_names.index(l) in result['class_ids']
+            ]
+            if found_labels:
+                print("Label(s) found in image: " + fileName)
                 print("Annotating...")
-                annotateAndSaveAnnotations(result, directory_path, fileName, label)
-                if (args.displayMaskedImages is True):
-                    display_instances(img, result['rois'], result['masks'], result['class_ids'],
-                                  class_names, class_names.index(label), result['scores'])
+                annotateAndSaveAnnotations(
+                    result, directory_path, fileName, labels, class_names,
+                    overwrite=overwrite, output_format=output_format,
+                    img_width=img_width, img_height=img_height,
+                    label_to_id=label_to_id)
+                if display_masked:
+                    for lbl in found_labels:
+                        display_instances(img, result['rois'], result['masks'], result['class_ids'],
+                                      class_names, class_names.index(lbl), result['scores'])
             else:
                 print("Label not found in image: " + fileName)
+        except Exception as e:
+            print("Error processing image {}: {}".format(fileName, e))
 
 
 ROOT_DIR = os.path.abspath("./")
@@ -145,22 +269,58 @@ if __name__ == '__main__':
                         help='Logs and checkpoints directory (default=logs/)')
     parser.add_argument('--label', required=True,
                         metavar="object_label_to_annotate",
-                        help='Either COCO dataset labels or custom')
-    parser.add_argument('--displayMaskedImages', type=bool,
-                        default=False, required=False,
+                        help='Comma-separated label(s) to annotate (e.g. "person,car")')
+    parser.add_argument('--labels_file',
+                        metavar="/path/to/labels.txt",
+                        help='File containing labels, one per line')
+    parser.add_argument('--displayMaskedImages', action='store_true',
+                        default=False,
                         help='Display the masked images.')
+    parser.add_argument('--no-overwrite', action='store_true',
+                        default=False,
+                        help='Skip annotation if JSON file already exists.')
+    parser.add_argument('--min_confidence', type=float, default=None,
+                        metavar="0.0-1.0",
+                        help='Minimum detection confidence threshold (default: model config)')
+    parser.add_argument('--output_format', default='auto-annotate',
+                        choices=['auto-annotate', 'coco', 'voc', 'yolo'],
+                        help='Output annotation format (default: auto-annotate)')
+    parser.add_argument('--device', default=None,
+                        choices=['cpu', 'gpu'],
+                        help='Force CPU or GPU device selection')
                         
     args = parser.parse_args()
 
+    # Device selection
+    if args.device == 'cpu':
+        tf.config.set_visible_devices([], 'GPU')
+    elif args.device == 'gpu':
+        gpus = tf.config.list_physical_devices('GPU')
+        if not gpus:
+            parser.error("No GPU devices available. Use --device cpu or omit --device.")
+
+    # Parse labels (comma-separated or from file)
+    labels = [l.strip() for l in args.label.split(",") if l.strip()]
+    if args.labels_file:
+        with open(args.labels_file, 'r') as f:
+            file_labels = [line.strip() for line in f if line.strip()]
+            labels.extend(file_labels)
+    labels = list(dict.fromkeys(labels))  # deduplicate preserving order
+
     # Validate arguments
     if args.command == "annotateCoco":
-        assert args.label in COCO_DATASET_LABELS, "Label --label does not belong to COCO labels "
+        for lbl in labels:
+            if lbl not in COCO_DATASET_LABELS:
+                parser.error("Label '{}' does not belong to COCO labels".format(lbl))
 
     elif args.command == "annotateCustom":
-        assert args.label, "Argument --label is required for annotation"
+        if not labels:
+            parser.error("Argument --label is required for annotation")
 
-    assert args.image_directory, "Argument --image_directory is required for annotation"
-    assert args.weights, "Argument --weights is required for annotation"
+    if not args.image_directory:
+        parser.error("Argument --image_directory is required for annotation")
+    if not args.weights:
+        parser.error("Argument --weights is required for annotation")
 
 
     class InferenceCocoConfig(Config):
@@ -180,29 +340,19 @@ if __name__ == '__main__':
 
     if args.command == "annotateCoco":
         config = InferenceCocoConfig()
-        class_names = ['BG', 'person', 'bicycle', 'car', 'motorcycle', 'airplane',
-               'bus', 'train', 'truck', 'boat', 'traffic light',
-               'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird',
-               'cat', 'dog', 'horse', 'sheep', 'cow', 'elephant', 'bear',
-               'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag', 'tie',
-               'suitcase', 'frisbee', 'skis', 'snowboard', 'sports ball',
-               'kite', 'baseball bat', 'baseball glove', 'skateboard',
-               'surfboard', 'tennis racket', 'bottle', 'wine glass', 'cup',
-               'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple',
-               'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza',
-               'donut', 'cake', 'chair', 'couch', 'potted plant', 'bed',
-               'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote',
-               'keyboard', 'cell phone', 'microwave', 'oven', 'toaster',
-               'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors',
-               'teddy bear', 'hair drier', 'toothbrush']
+        class_names = COCO_DATASET_LABELS[:]
     else:
         config = InferenceCustomConfig()
-        class_names = ['BG']
-        class_names.append(args.label)
+        class_names = ['BG'] + labels
+
+    # Override confidence threshold if specified
+    if args.min_confidence is not None:
+        config.DETECTION_MIN_CONFIDENCE = args.min_confidence
+
     config.display()
 
     # Create model
-    model = MaskRCNN(mode="inference", config = config, model_dir = "./")
+    model = MaskRCNN(mode="inference", config=config, model_dir="./")
 
     # Select weights file to load
     if args.command == "annotateCoco":
@@ -221,7 +371,11 @@ if __name__ == '__main__':
 
     # Annotate
     if args.command == "annotateCoco" or args.command == "annotateCustom":
-        annotateImagesInDirectory(model, directory_path=args.image_directory, label = args.label)
+        annotateImagesInDirectory(model, directory_path=args.image_directory,
+                                  labels=labels, class_names=class_names,
+                                  display_masked=args.displayMaskedImages,
+                                  overwrite=not args.no_overwrite,
+                                  output_format=args.output_format)
     else:
         print("'{}' is not recognized. "
               "Use 'annotateCoco' or 'annotateCustom'".format(args.command))
