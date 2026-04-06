@@ -41,7 +41,7 @@ _MODEL_SIZE_MAP = {
 }
 
 
-def _build_model_name(model_size="medium", segmentation=True):
+def build_model_name(model_size="medium", segmentation=True):
     """Build the Ultralytics model file name.
 
     Parameters
@@ -91,7 +91,7 @@ class YOLOv8Backend(DetectionBackend):
         # If the user passes the legacy "coco_weights" sentinel or
         # "coco", build the standard Ultralytics model name.
         if weights_path.lower() in ("coco_weights", "coco"):
-            weights_path = _build_model_name(model_size, segmentation)
+            weights_path = build_model_name(model_size, segmentation)
 
         model = YOLO(weights_path)
 

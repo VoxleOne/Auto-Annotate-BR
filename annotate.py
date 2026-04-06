@@ -419,6 +419,6 @@ if __name__ == '__main__':
         labels=labels,
         class_names=class_names,
         confidence_threshold=confidence,
-        overwrite=not getattr(args, 'no_overwrite', False),
+        overwrite=not args.no_overwrite,
         output_format=args.output_format,
     )

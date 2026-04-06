@@ -281,9 +281,9 @@ def train_yolov8(args):
     from ultralytics import YOLO
 
     # Build the base model name from model_size.
-    from backends.yolov8 import _build_model_name
+    from backends.yolov8 import build_model_name
     if args.weights.lower() in ("coco", "coco_weights"):
-        model_name = _build_model_name(args.model_size, segmentation=False)
+        model_name = build_model_name(args.model_size, segmentation=False)
     else:
         model_name = args.weights
 
