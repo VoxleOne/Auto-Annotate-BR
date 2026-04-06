@@ -6,7 +6,7 @@ import numpy as np
 import skimage.draw
 
 # Root directory of the project
-ROOT_DIR = os.path.abspath("../../")
+ROOT_DIR = os.path.abspath("./")
 
 # Import Mask RCNN
 sys.path.append(ROOT_DIR)  # To find local version of the library
@@ -139,10 +139,10 @@ class CustomDataset(utils.Dataset):
     def image_reference(self, image_id):
         """Return the path of the image."""
         info = self.image_info[image_id]
-        if info["source"] == "Bird House":
+        if info["source"] == "customLabel":
             return info["path"]
         else:
-            super(self.__class__, self).image_reference(image_id)
+            return super(self.__class__, self).image_reference(image_id)
 
 
 def train(model):

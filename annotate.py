@@ -15,20 +15,21 @@ import tensorflow as tf
 tf.get_logger().setLevel('ERROR')
 
 
-def annotateResult(result, image_name, label):
+def annotateResult(result, image_name, label, class_names):
     n = len(result['class_ids'])
     annotations = []
     annotationId = 1
     for i in range(n):
         if class_names[result['class_ids'][i]] == label:
             annotation = create_sub_mask_annotation(result['masks'][:, :, i], result['rois'][i],
-                                                    annotationId, result['class_ids'][i], image_name)
+                                                    annotationId, result['class_ids'][i], image_name,
+                                                    class_names)
             annotations.append(annotation)
             annotationId += 1
     return annotations
 
 
-def create_sub_mask_annotation(sub_mask, bounding_box, annotationId, classId, image_name):
+def create_sub_mask_annotation(sub_mask, bounding_box, annotationId, classId, image_name, class_names):
     # Find contours (boundary lines) around each sub-mask
     contours = measure.find_contours(sub_mask, 0.5, positive_orientation='low')
 
@@ -70,22 +71,22 @@ def create_sub_mask_annotation(sub_mask, bounding_box, annotationId, classId, im
 
 def writeToJSONFile(path, fileName, data):
     fileName = fileName.split(".")[0]
-    filePathNameWExt =  path + '/' + fileName + '.json'
+    filePathNameWExt = os.path.join(path, fileName + '.json')
     with open(filePathNameWExt, 'w') as fp:
         json.dump(data, fp)
 
 
-def annotateAndSaveAnnotations(r, directory, image_name, label):
-    annotationsJson = annotateResult(r, image_name, label)
+def annotateAndSaveAnnotations(r, directory, image_name, label, class_names):
+    annotationsJson = annotateResult(r, image_name, label, class_names)
     writeToJSONFile(directory, image_name, annotationsJson)
 
 
-def annotateImagesInDirectory(rcnn, directory_path, label):
-    for fileName in os.listdir(directory_path):
+def annotateImagesInDirectory(rcnn, directory_path, label, class_names, display_masked=False):
+    for fileName in sorted(os.listdir(directory_path)):
         if fileName.endswith(".jpg") or fileName.endswith(".jpeg") or fileName.endswith(".png") or fileName.endswith(".tif") or fileName.endswith(".tiff"):
         # load image
             print("Evaluating Image: " + fileName)
-            img = load_img(directory_path+"/"+fileName)
+            img = load_img(os.path.join(directory_path, fileName))
             img = img_to_array(img)
             # make prediction
             results = rcnn.detect([img], verbose=0)
@@ -95,8 +96,8 @@ def annotateImagesInDirectory(rcnn, directory_path, label):
             if class_names.index(label) in result['class_ids']:
                 print("Label found in image: " + fileName)
                 print("Annotating...")
-                annotateAndSaveAnnotations(result, directory_path, fileName, label)
-                if (args.displayMaskedImages is True):
+                annotateAndSaveAnnotations(result, directory_path, fileName, label, class_names)
+                if display_masked:
                     display_instances(img, result['rois'], result['masks'], result['class_ids'],
                                   class_names, class_names.index(label), result['scores'])
             else:
@@ -146,8 +147,8 @@ if __name__ == '__main__':
     parser.add_argument('--label', required=True,
                         metavar="object_label_to_annotate",
                         help='Either COCO dataset labels or custom')
-    parser.add_argument('--displayMaskedImages', type=bool,
-                        default=False, required=False,
+    parser.add_argument('--displayMaskedImages', action='store_true',
+                        default=False,
                         help='Display the masked images.')
                         
     args = parser.parse_args()
@@ -221,7 +222,9 @@ if __name__ == '__main__':
 
     # Annotate
     if args.command == "annotateCoco" or args.command == "annotateCustom":
-        annotateImagesInDirectory(model, directory_path=args.image_directory, label = args.label)
+        annotateImagesInDirectory(model, directory_path=args.image_directory,
+                                  label=args.label, class_names=class_names,
+                                  display_masked=args.displayMaskedImages)
     else:
         print("'{}' is not recognized. "
               "Use 'annotateCoco' or 'annotateCustom'".format(args.command))
