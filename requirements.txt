@@ -11,3 +11,4 @@ imgaug
 Shapely>=2.0
 IPython[all]
 packaging
+tqdm
