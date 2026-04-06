@@ -181,7 +181,7 @@ if __name__ == '__main__':
         description='Train Mask R-CNN to detect custom objects.')
     parser.add_argument("command",
                         metavar="<command>",
-                        help="'train' or 'splash'")
+                        help="'train'")
     parser.add_argument('--dataset', required=False,
                         metavar="/path/to/custom/dataset/",
                         help='Directory of the Custom dataset')
@@ -192,20 +192,14 @@ if __name__ == '__main__':
                         default=DEFAULT_LOGS_DIR,
                         metavar="/path/to/logs/",
                         help='Logs and checkpoints directory (default=logs/)')
-    parser.add_argument('--image', required=False,
-                        metavar="path or URL to image",
-                        help='Image to apply the color splash effect on')
-    parser.add_argument('--video', required=False,
-                        metavar="path or URL to video",
-                        help='Video to apply the color splash effect on')
     args = parser.parse_args()
 
     # Validate arguments
     if args.command == "train":
-        assert args.dataset, "Argument --dataset is required for training"
-    elif args.command == "splash":
-        assert args.image or args.video,\
-               "Provide --image or --video to apply color splash"
+        if not args.dataset:
+            parser.error("Argument --dataset is required for training")
+    else:
+        parser.error("'{}' is not recognized. Use 'train'".format(args.command))
 
     print("Weights: ", args.weights)
     print("Dataset: ", args.dataset)
@@ -247,9 +241,8 @@ if __name__ == '__main__':
     else:
         model.load_weights(weights_path, by_name=True)
 
-    # Train or evaluate
+    # Train
     if args.command == "train":
         train(model)
     else:
-        print("'{}' is not recognized. "
-              "Use 'train' or 'splash'".format(args.command))
+        parser.error("'{}' is not recognized. Use 'train'".format(args.command))

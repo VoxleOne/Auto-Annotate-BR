@@ -1,5 +1,4 @@
 import numpy as np
-from skimage.measure import find_contours
 from shapely.geometry import Polygon, MultiPolygon 
 from skimage import measure   
 import json
@@ -10,7 +9,6 @@ from mrcnn import utils
 from mrcnn.visualize import display_instances
 from mrcnn.config import Config
 from mrcnn.model import MaskRCNN
-import matplotlib.pyplot as plt
 import tensorflow as tf
 tf.get_logger().setLevel('ERROR')
 
@@ -69,39 +67,47 @@ def create_sub_mask_annotation(sub_mask, bounding_box, annotationId, classId, im
 
 
 
-def writeToJSONFile(path, fileName, data):
+def writeToJSONFile(path, fileName, data, overwrite=True):
     fileName = fileName.split(".")[0]
     filePathNameWExt = os.path.join(path, fileName + '.json')
+    if not overwrite and os.path.exists(filePathNameWExt):
+        print("Skipping (file exists): " + filePathNameWExt)
+        return
     with open(filePathNameWExt, 'w') as fp:
         json.dump(data, fp)
 
 
-def annotateAndSaveAnnotations(r, directory, image_name, label, class_names):
+def annotateAndSaveAnnotations(r, directory, image_name, label, class_names, overwrite=True):
     annotationsJson = annotateResult(r, image_name, label, class_names)
-    writeToJSONFile(directory, image_name, annotationsJson)
+    writeToJSONFile(directory, image_name, annotationsJson, overwrite=overwrite)
 
 
-def annotateImagesInDirectory(rcnn, directory_path, label, class_names, display_masked=False):
+def annotateImagesInDirectory(rcnn, directory_path, label, class_names,
+                              display_masked=False, overwrite=True):
     for fileName in sorted(os.listdir(directory_path)):
         if fileName.endswith(".jpg") or fileName.endswith(".jpeg") or fileName.endswith(".png") or fileName.endswith(".tif") or fileName.endswith(".tiff"):
-        # load image
-            print("Evaluating Image: " + fileName)
-            img = load_img(os.path.join(directory_path, fileName))
-            img = img_to_array(img)
-            # make prediction
-            results = rcnn.detect([img], verbose=0)
-            # get dictionary for first prediction
-            result = results[0]
+            try:
+                # load image
+                print("Evaluating Image: " + fileName)
+                img = load_img(os.path.join(directory_path, fileName))
+                img = img_to_array(img)
+                # make prediction
+                results = rcnn.detect([img], verbose=0)
+                # get dictionary for first prediction
+                result = results[0]
 
-            if class_names.index(label) in result['class_ids']:
-                print("Label found in image: " + fileName)
-                print("Annotating...")
-                annotateAndSaveAnnotations(result, directory_path, fileName, label, class_names)
-                if display_masked:
-                    display_instances(img, result['rois'], result['masks'], result['class_ids'],
-                                  class_names, class_names.index(label), result['scores'])
-            else:
-                print("Label not found in image: " + fileName)
+                if class_names.index(label) in result['class_ids']:
+                    print("Label found in image: " + fileName)
+                    print("Annotating...")
+                    annotateAndSaveAnnotations(result, directory_path, fileName,
+                                              label, class_names, overwrite=overwrite)
+                    if display_masked:
+                        display_instances(img, result['rois'], result['masks'], result['class_ids'],
+                                      class_names, class_names.index(label), result['scores'])
+                else:
+                    print("Label not found in image: " + fileName)
+            except Exception as e:
+                print("Error processing image {}: {}".format(fileName, e))
 
 
 ROOT_DIR = os.path.abspath("./")
@@ -150,18 +156,25 @@ if __name__ == '__main__':
     parser.add_argument('--displayMaskedImages', action='store_true',
                         default=False,
                         help='Display the masked images.')
+    parser.add_argument('--no-overwrite', action='store_true',
+                        default=False,
+                        help='Skip annotation if JSON file already exists.')
                         
     args = parser.parse_args()
 
     # Validate arguments
     if args.command == "annotateCoco":
-        assert args.label in COCO_DATASET_LABELS, "Label --label does not belong to COCO labels "
+        if args.label not in COCO_DATASET_LABELS:
+            parser.error("Label --label does not belong to COCO labels")
 
     elif args.command == "annotateCustom":
-        assert args.label, "Argument --label is required for annotation"
+        if not args.label:
+            parser.error("Argument --label is required for annotation")
 
-    assert args.image_directory, "Argument --image_directory is required for annotation"
-    assert args.weights, "Argument --weights is required for annotation"
+    if not args.image_directory:
+        parser.error("Argument --image_directory is required for annotation")
+    if not args.weights:
+        parser.error("Argument --weights is required for annotation")
 
 
     class InferenceCocoConfig(Config):
@@ -224,7 +237,8 @@ if __name__ == '__main__':
     if args.command == "annotateCoco" or args.command == "annotateCustom":
         annotateImagesInDirectory(model, directory_path=args.image_directory,
                                   label=args.label, class_names=class_names,
-                                  display_masked=args.displayMaskedImages)
+                                  display_masked=args.displayMaskedImages,
+                                  overwrite=not args.no_overwrite)
     else:
         print("'{}' is not recognized. "
               "Use 'annotateCoco' or 'annotateCustom'".format(args.command))
