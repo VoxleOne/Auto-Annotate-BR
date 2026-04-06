@@ -27,15 +27,60 @@ Thank you for your interest in contributing! This guide will help you get starte
 
 3. Install dependencies:
    ```bash
+   # YOLOv8 backend only (default)
    pip install -r requirements.txt
+
+   # Both backends (includes TensorFlow for legacy Mask R-CNN)
+   pip install -r requirements.txt -r requirements-maskrcnn.txt
    ```
 
 ### Docker Setup (Alternative)
 
 ```bash
+# YOLOv8 only
 docker build -t auto-annotate-br .
+
+# Both backends
+docker build -f Dockerfile.maskrcnn -t auto-annotate-br-full .
+
 docker run --rm -v /path/to/images:/data auto-annotate-br \
-  annotateCoco --image_directory=/data --label=person --weights=/app/mask_rcnn_coco.h5
+  annotateCoco --image_directory=/data --label=person --weights=coco
+```
+
+## Architecture: Backend Abstraction
+
+The project uses a **backend abstraction pattern** to support multiple
+detection frameworks.  All backends live in the `backends/` module.
+
+### Key components
+
+- **`backends/__init__.py`** — `DetectionBackend` ABC and `DetectionResult`
+  dataclass.  The factory function `get_backend(name)` returns the
+  correct backend instance.
+- **`backends/yolov8.py`** — YOLOv8 backend (Ultralytics).  Default.
+- **`backends/maskrcnn.py`** — Legacy Mask R-CNN backend (TensorFlow).
+
+### Adding a new backend
+
+1. Create `backends/my_backend.py` with a class that extends
+   `DetectionBackend`.
+2. Implement `load_model()`, `detect()`, and `get_class_names()`.
+3. Register it in `get_backend()` inside `backends/__init__.py`.
+4. Add the new choice to the `--backend` argument in `annotate.py`
+   and `customTrain.py`.
+
+### `DetectionResult` contract
+
+Every backend returns a list of `DetectionResult` dataclass instances:
+
+```python
+@dataclass
+class DetectionResult:
+    class_id: int            # 0-based class ID (no background)
+    label: str               # Human-readable class name
+    bbox: tuple              # (x, y, width, height) absolute pixels
+    score: float             # Confidence score 0–1
+    mask: np.ndarray | None  # Binary mask (H, W) or None
 ```
 
 ## Coding Conventions
@@ -46,6 +91,7 @@ docker run --rm -v /path/to/images:/data auto-annotate-br \
 - Use `parser.error(...)` instead of bare `assert` for CLI argument validation.
 - Wrap per-image processing in `try/except` to allow batch operations to continue on individual failures.
 - Use `sorted(os.listdir(...))` for deterministic file ordering.
+- Lazy-import heavy frameworks (TensorFlow, PyTorch) inside functions or backend modules, not at the top of `annotate.py` or `customTrain.py`.
 
 ## Pull Request Process
 
@@ -59,7 +105,7 @@ docker run --rm -v /path/to/images:/data auto-annotate-br \
 
 - Use [GitHub Issues](https://github.com/VoxleOne/Auto-Annotate-BR/issues) to report bugs or request features.
 - Check [knownIssues.md](knownIssues.md) for previously documented problems and workarounds.
-- Include your Python version, TensorFlow version, OS, and a full stack trace when reporting bugs.
+- Include your Python version, backend (`yolov8` or `maskrcnn`), OS, and a full stack trace when reporting bugs.
 
 ## License
 

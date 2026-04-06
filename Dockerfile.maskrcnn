@@ -1,0 +1,20 @@
+# Dockerfile for users who need both YOLOv8 and legacy Mask R-CNN backends.
+# Build:  docker build -f Dockerfile.maskrcnn -t auto-annotate-br-full .
+FROM tensorflow/tensorflow:2.10.0-gpu
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install Python dependencies (both backends)
+COPY requirements.txt requirements-maskrcnn.txt ./
+RUN pip install --no-cache-dir -r requirements.txt -r requirements-maskrcnn.txt
+
+# Copy application code
+COPY . .
+
+ENTRYPOINT ["python", "annotate.py"]

@@ -1,38 +1,57 @@
 import numpy as np
-from shapely.geometry import Polygon, MultiPolygon 
-from skimage import measure   
+from shapely.geometry import Polygon, MultiPolygon
+from skimage import measure
 import json
 import os
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
-from tensorflow.keras.preprocessing.image import load_img
-from tensorflow.keras.preprocessing.image import img_to_array
-from mrcnn import utils
-from mrcnn.visualize import display_instances
-from mrcnn.config import Config
-from mrcnn.model import MaskRCNN
-import tensorflow as tf
-tf.get_logger().setLevel('ERROR')
+from PIL import Image
+
+from backends import get_backend
 
 
-def annotateResult(result, image_name, labels, class_names):
-    """Annotate a single result for one or more labels."""
-    n = len(result['class_ids'])
+def annotateDetections(detections, image_name, labels):
+    """Build annotation dicts from a list of DetectionResult objects.
+
+    Parameters
+    ----------
+    detections : list[backends.DetectionResult]
+        Detections returned by a backend.
+    image_name : str
+        File name of the source image.
+    labels : list[str]
+        Labels to keep.  Detections whose label is not in this list
+        are silently skipped.
+
+    Returns
+    -------
+    list[dict]
+        Annotation dicts compatible with all output writers.
+    """
     annotations = []
     annotationId = 1
-    for i in range(n):
-        detected_label = class_names[result['class_ids'][i]]
-        if detected_label in labels:
-            annotation = create_sub_mask_annotation(result['masks'][:, :, i], result['rois'][i],
-                                                    annotationId, result['class_ids'][i], image_name,
-                                                    class_names)
-            annotations.append(annotation)
-            annotationId += 1
+    for det in detections:
+        if det.label not in labels:
+            continue
+        if det.mask is not None:
+            annotation = _annotation_from_mask(
+                det.mask, det.bbox, annotationId, det.label, image_name)
+        else:
+            # No mask available — emit bounding-box-only annotation.
+            annotation = {
+                'filename': image_name,
+                'id': annotationId,
+                'label': det.label,
+                'bbox': det.bbox,
+                'segmentation': [],
+            }
+        annotations.append(annotation)
+        annotationId += 1
     return annotations
 
 
-def create_sub_mask_annotation(sub_mask, bounding_box, annotationId, classId, image_name, class_names):
-    # Find contours (boundary lines) around each sub-mask
+def _annotation_from_mask(sub_mask, bbox_xywh, annotationId, label, image_name):
+    """Convert a binary mask to an annotation dict with polygon segmentation."""
     contours = measure.find_contours(sub_mask, 0.5, positive_orientation='low')
 
     segmentations = []
@@ -52,21 +71,22 @@ def create_sub_mask_annotation(sub_mask, bounding_box, annotationId, classId, im
         segmentations.append(segmentation)
 
     # Combine the polygons to calculate the bounding box and area
-    multi_poly = MultiPolygon(polygons)
-    x, y, max_x, max_y = multi_poly.bounds
-    width = max_x - x
-    height = max_y - y
-    bbox = (x, y, width, height)
-    # area = multi_poly.area
+    if polygons:
+        multi_poly = MultiPolygon(polygons)
+        x, y, max_x, max_y = multi_poly.bounds
+        width = max_x - x
+        height = max_y - y
+        bbox = (x, y, width, height)
+    else:
+        bbox = bbox_xywh
 
     annotation = {
         'filename': image_name,
         'id': annotationId,
-        'label': str(class_names[classId]),
+        'label': label,
         'bbox': bbox,
         'segmentation': segmentations,
     }
-
     return annotation
 
 
@@ -159,10 +179,11 @@ def writeYoloTxt(path, fileName, annotations, img_width, img_height, label_to_id
         fp.write("\n".join(lines))
 
 
-def annotateAndSaveAnnotations(r, directory, image_name, labels, class_names,
+def annotateAndSaveAnnotations(detections, directory, image_name, labels,
                                overwrite=True, output_format="auto-annotate",
                                img_width=0, img_height=0, label_to_id=None):
-    annotationsJson = annotateResult(r, image_name, labels, class_names)
+    """Create annotation dicts from detections and write to disk."""
+    annotationsJson = annotateDetections(detections, image_name, labels)
     if output_format == "coco":
         writeCocoJSON(directory, image_name, annotationsJson, img_width, img_height)
     elif output_format == "voc":
@@ -174,9 +195,30 @@ def annotateAndSaveAnnotations(r, directory, image_name, labels, class_names,
         writeToJSONFile(directory, image_name, annotationsJson, overwrite=overwrite)
 
 
-def annotateImagesInDirectory(rcnn, directory_path, labels, class_names,
-                              display_masked=False, overwrite=True,
-                              output_format="auto-annotate"):
+def annotateImagesInDirectory(backend, model, directory_path, labels,
+                              class_names, confidence_threshold=0.7,
+                              overwrite=True, output_format="auto-annotate"):
+    """Run detection on every image in a directory and save annotations.
+
+    Parameters
+    ----------
+    backend : backends.DetectionBackend
+        The detection backend to use.
+    model : object
+        Model returned by ``backend.load_model()``.
+    directory_path : str
+        Path to the image directory.
+    labels : list[str]
+        Labels to annotate.
+    class_names : list[str]
+        Full list of class names the model can detect (no BG prefix).
+    confidence_threshold : float
+        Minimum detection confidence.
+    overwrite : bool
+        Whether to overwrite existing annotation files.
+    output_format : str
+        One of ``"auto-annotate"``, ``"coco"``, ``"voc"``, ``"yolo"``.
+    """
     try:
         from tqdm import tqdm
         has_tqdm = True
@@ -196,31 +238,31 @@ def annotateImagesInDirectory(rcnn, directory_path, labels, class_names,
         try:
             # load image
             print("Evaluating Image: " + fileName)
-            img = load_img(os.path.join(directory_path, fileName))
-            img = img_to_array(img)
+            pil_img = Image.open(os.path.join(directory_path, fileName)).convert("RGB")
+            img = np.array(pil_img)
             img_height, img_width = img.shape[:2]
-            # make prediction
-            results = rcnn.detect([img], verbose=0)
-            # get dictionary for first prediction
-            result = results[0]
+
+            # Run detection via the backend abstraction
+            detections = backend.detect(model, img, confidence_threshold)
+
+            # Assign labels from class_names if the backend left them empty
+            for det in detections:
+                if not det.label and det.class_id < len(class_names):
+                    det.label = class_names[det.class_id]
 
             # Check if any of the requested labels are found
             found_labels = [
-                l for l in labels
-                if class_names.index(l) in result['class_ids']
+                det.label for det in detections if det.label in labels
             ]
+            found_labels = list(dict.fromkeys(found_labels))  # deduplicate
             if found_labels:
                 print("Label(s) found in image: " + fileName)
                 print("Annotating...")
                 annotateAndSaveAnnotations(
-                    result, directory_path, fileName, labels, class_names,
+                    detections, directory_path, fileName, labels,
                     overwrite=overwrite, output_format=output_format,
                     img_width=img_width, img_height=img_height,
                     label_to_id=label_to_id)
-                if display_masked:
-                    for lbl in found_labels:
-                        display_instances(img, result['rois'], result['masks'], result['class_ids'],
-                                      class_names, class_names.index(lbl), result['scores'])
             else:
                 print("Label not found in image: " + fileName)
         except Exception as e:
@@ -233,27 +275,32 @@ COCO_WEIGHTS_PATH = os.path.join(ROOT_DIR, "./mask_rcnn_coco.h5")
 # Directory to save logs, if not provided
 # through the command line argument --logs
 DEFAULT_LOGS_DIR = os.path.join(ROOT_DIR, "logs")
-COCO_DATASET_LABELS = ['BG', 'person', 'bicycle', 'car', 'motorcycle', 'airplane',
-               'bus', 'train', 'truck', 'boat', 'traffic light',
-               'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird',
-               'cat', 'dog', 'horse', 'sheep', 'cow', 'elephant', 'bear',
-               'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag', 'tie',
-               'suitcase', 'frisbee', 'skis', 'snowboard', 'sports ball',
-               'kite', 'baseball bat', 'baseball glove', 'skateboard',
-               'surfboard', 'tennis racket', 'bottle', 'wine glass', 'cup',
-               'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple',
-               'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza',
-               'donut', 'cake', 'chair', 'couch', 'potted plant', 'bed',
-               'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote',
-               'keyboard', 'cell phone', 'microwave', 'oven', 'toaster',
-               'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors',
-               'teddy bear', 'hair drier', 'toothbrush']
+COCO_DATASET_LABELS = [
+    'person', 'bicycle', 'car', 'motorcycle', 'airplane',
+    'bus', 'train', 'truck', 'boat', 'traffic light',
+    'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird',
+    'cat', 'dog', 'horse', 'sheep', 'cow', 'elephant', 'bear',
+    'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag', 'tie',
+    'suitcase', 'frisbee', 'skis', 'snowboard', 'sports ball',
+    'kite', 'baseball bat', 'baseball glove', 'skateboard',
+    'surfboard', 'tennis racket', 'bottle', 'wine glass', 'cup',
+    'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple',
+    'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza',
+    'donut', 'cake', 'chair', 'couch', 'potted plant', 'bed',
+    'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote',
+    'keyboard', 'cell phone', 'microwave', 'oven', 'toaster',
+    'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors',
+    'teddy bear', 'hair drier', 'toothbrush',
+]
+
+# Legacy list that includes the 'BG' prefix used by Mask R-CNN.
+COCO_DATASET_LABELS_WITH_BG = ['BG'] + COCO_DATASET_LABELS
 
 if __name__ == '__main__':
     import argparse
 
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description = 'Annotate the object')
+    parser = argparse.ArgumentParser(description='Annotate the object')
     parser.add_argument("command",
                         metavar="<command>",
                         help="'annotateCoco' or 'annotateCustom'")
@@ -261,8 +308,8 @@ if __name__ == '__main__':
                         metavar="/path/to/the/image/directory/",
                         help='Directory of the images that need to be annotated')
     parser.add_argument('--weights', required=True,
-                        metavar="/path/to/weights.h5",
-                        help="path_to_weights.h5_file or 'coco_weights'")
+                        metavar="/path/to/weights",
+                        help="Path to weights file or 'coco_weights'")
     parser.add_argument('--logs', required=False,
                         default=DEFAULT_LOGS_DIR,
                         metavar="/path/to/logs/",
@@ -273,9 +320,6 @@ if __name__ == '__main__':
     parser.add_argument('--labels_file',
                         metavar="/path/to/labels.txt",
                         help='File containing labels, one per line')
-    parser.add_argument('--displayMaskedImages', action='store_true',
-                        default=False,
-                        help='Display the masked images.')
     parser.add_argument('--no-overwrite', action='store_true',
                         default=False,
                         help='Skip annotation if JSON file already exists.')
@@ -288,16 +332,15 @@ if __name__ == '__main__':
     parser.add_argument('--device', default=None,
                         choices=['cpu', 'gpu'],
                         help='Force CPU or GPU device selection')
-                        
-    args = parser.parse_args()
+    parser.add_argument('--backend', default='yolov8',
+                        choices=['maskrcnn', 'yolov8'],
+                        help='Detection backend (default: yolov8)')
+    parser.add_argument('--model_size', default='medium',
+                        choices=['nano', 'small', 'medium', 'large', 'xlarge'],
+                        help='YOLOv8 model size (default: medium). '
+                             'Ignored when --backend=maskrcnn.')
 
-    # Device selection
-    if args.device == 'cpu':
-        tf.config.set_visible_devices([], 'GPU')
-    elif args.device == 'gpu':
-        gpus = tf.config.list_physical_devices('GPU')
-        if not gpus:
-            parser.error("No GPU devices available. Use --device cpu or omit --device.")
+    args = parser.parse_args()
 
     # Parse labels (comma-separated or from file)
     labels = [l.strip() for l in args.label.split(",") if l.strip()]
@@ -312,71 +355,70 @@ if __name__ == '__main__':
         for lbl in labels:
             if lbl not in COCO_DATASET_LABELS:
                 parser.error("Label '{}' does not belong to COCO labels".format(lbl))
-
     elif args.command == "annotateCustom":
         if not labels:
             parser.error("Argument --label is required for annotation")
+    else:
+        parser.error(
+            "'{}' is not recognized. "
+            "Use 'annotateCoco' or 'annotateCustom'".format(args.command))
 
     if not args.image_directory:
         parser.error("Argument --image_directory is required for annotation")
     if not args.weights:
         parser.error("Argument --weights is required for annotation")
 
+    # ---- Instantiate the selected backend ----
+    backend = get_backend(args.backend)
 
-    class InferenceCocoConfig(Config):
-        # Set batch size to 1 since we'll be running inference on
-        # one image at a time. Batch size = GPU_COUNT * IMAGES_PER_GPU
-        NAME = "inferenceCoco"
-        GPU_COUNT = 1
-        IMAGES_PER_GPU = 1
-        NUM_CLASSES = 1 + 80
-        
-    class InferenceCustomConfig(Config):
-        NAME = "inferenceCustom"
-        GPU_COUNT = 1
-        IMAGES_PER_GPU = 1
-        NUM_CLASSES = 1 + 1
+    confidence = args.min_confidence if args.min_confidence is not None else 0.7
 
+    if args.backend == "maskrcnn":
+        # Mask R-CNN needs special config parameters.
+        if args.command == "annotateCoco":
+            num_classes = 1 + 80  # BG + 80 COCO classes
+        else:
+            num_classes = 1 + len(labels)
 
-    if args.command == "annotateCoco":
-        config = InferenceCocoConfig()
-        class_names = COCO_DATASET_LABELS[:]
-    else:
-        config = InferenceCustomConfig()
-        class_names = ['BG'] + labels
-
-    # Override confidence threshold if specified
-    if args.min_confidence is not None:
-        config.DETECTION_MIN_CONFIDENCE = args.min_confidence
-
-    config.display()
-
-    # Create model
-    model = MaskRCNN(mode="inference", config=config, model_dir="./")
-
-    # Select weights file to load
-    if args.command == "annotateCoco":
-        weights_path = COCO_WEIGHTS_PATH
-
-        # Download weights file
-        if not os.path.exists(weights_path):
-            utils.download_trained_weights(weights_path)
-    else:
         weights_path = args.weights
+        if args.command == "annotateCoco" and args.weights.lower() in ("coco_weights", "coco"):
+            weights_path = COCO_WEIGHTS_PATH
+            if not os.path.exists(weights_path):
+                from mrcnn import utils as mrcnn_utils
+                mrcnn_utils.download_trained_weights(weights_path)
 
-    # Load weights
-    print("Loading weights... ", weights_path)
-    model.load_weights(weights_path, by_name=True)
-
-
-    # Annotate
-    if args.command == "annotateCoco" or args.command == "annotateCustom":
-        annotateImagesInDirectory(model, directory_path=args.image_directory,
-                                  labels=labels, class_names=class_names,
-                                  display_masked=args.displayMaskedImages,
-                                  overwrite=not args.no_overwrite,
-                                  output_format=args.output_format)
+        model = backend.load_model(
+            weights_path,
+            device=args.device,
+            num_classes=num_classes,
+            min_confidence=args.min_confidence,
+            command=args.command,
+        )
+        # Mask R-CNN uses 1-indexed class IDs (0 = BG).
+        if args.command == "annotateCoco":
+            class_names = COCO_DATASET_LABELS_WITH_BG[:]
+        else:
+            class_names = ['BG'] + labels
     else:
-        print("'{}' is not recognized. "
-              "Use 'annotateCoco' or 'annotateCustom'".format(args.command))
+        # YOLOv8 backend
+        model = backend.load_model(
+            args.weights,
+            device=args.device,
+            model_size=args.model_size,
+            segmentation=True,
+        )
+        class_names = backend.get_class_names(model)
 
+    print("Backend: {}".format(args.backend))
+    print("Labels to annotate: {}".format(labels))
+
+    # ---- Annotate ----
+    annotateImagesInDirectory(
+        backend, model,
+        directory_path=args.image_directory,
+        labels=labels,
+        class_names=class_names,
+        confidence_threshold=confidence,
+        overwrite=not args.no_overwrite,
+        output_format=args.output_format,
+    )

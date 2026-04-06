@@ -1,0 +1,7 @@
+# Mask R-CNN backend dependencies.
+# Install alongside requirements.txt when using --backend maskrcnn:
+#   pip install -r requirements.txt -r requirements-maskrcnn.txt
+tensorflow>=2.10,<2.16
+h5py>=3.1
+imgaug
+IPython[all]
