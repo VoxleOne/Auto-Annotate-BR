@@ -13,7 +13,7 @@ PyYAML
 
 # ---- YOLOv8 backend (default) ----
 ultralytics>=8.0,<9.0
-torch>=2.0
+torch>=2.6.0
 
 # ---- Mask R-CNN backend (legacy, optional) ----
 # Uncomment the lines below if you need --backend maskrcnn.
