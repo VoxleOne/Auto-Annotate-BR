@@ -1,9 +1,9 @@
 
-<p align="center"><a href="https://github.com/mdhmz1/Auto-Annotate#mdhmz1"><img src="https://github.com/mdhmz1/Auto-Annotate/blob/main/asset/logos/auto-annotate-logo-transparent.png" alt="Auto-Annotate Logo" height="240"></a></p>
+<p align="center"><a href="https://github.com/VoxleOne/Auto-Annotate-BR#readme"><img src="https://github.com/VoxleOne/Auto-Annotate-BR/blob/main/asset/logos/auto-annotate-logo-transparent.png" alt="Auto-Annotate Logo" height="240"></a></p>
 <h1 align="center">Auto-Annotate-BR</h1>
 <p align="center">Anote imagens de todo um diretório, automaticamente, com um único comando. </p>
 
-<p align="center"><img src="https://img.shields.io/badge/version-v1.0.0-brightgreen?style=plastic" alt="Auto-Annotate Version"> <img src="https://img.shields.io/github/repo-size/mdhmz1/Auto-Annotate?style=plastic" alt="repo size"> <img src="https://img.shields.io/github/stars/mdhmz1/Auto-Annotate?&style=social" alt="stars"></p>
+<p align="center"><img src="https://img.shields.io/badge/version-v2.0.0-brightgreen?style=plastic" alt="Auto-Annotate Version"> <img src="https://img.shields.io/github/repo-size/VoxleOne/Auto-Annotate-BR?style=plastic" alt="repo size"> <img src="https://img.shields.io/github/stars/VoxleOne/Auto-Annotate-BR?&style=social" alt="stars"> <img src="https://img.shields.io/badge/python-3.9%20%7C%203.10-blue?style=plastic" alt="Python Version"></p>
 
 
 
@@ -23,6 +23,13 @@ A ferramenta de anotação automática funciona em dois modos - COCO e Personali
 * **Anotação de rótulo personalizado** - Treine o modelo para seu rótulo personalizado. Use os pesos e anote.
 
 NOTA: Gentileza consultar o arquivo [knownIssues.md](knownIssues.md) no repositório, para checar os problemas conhecidos e sua resolução. Sinta-se à vontade para contribuir caso encontre erros/problemas durante a instalação e uso da ferramenta.
+
+## Requisitos
+
+* **Python**: 3.9 ou 3.10 (testado)
+* **SO**: Linux (Ubuntu 20.04+), macOS, Windows 10+
+* **TensorFlow**: 2.10–2.15
+* **Docker**: Opcionalmente, use o `Dockerfile` incluído para ambiente reproduzível
 
 ## FORMATO JSON PARA ANOTAÇÃO
 
@@ -84,11 +91,14 @@ IMAGEM ORIGINAL            |  IMAGEM 'MASCARADA'
 
 4. Execute os comandos abaixo conforme o modo de uso - Anotar COCO ou Personalizado.
   ```bash
-  python3 annotate.py annotateCoco --image_directory=/caminho/para/o/diretorio/de/imagens/ --label=rotulo_a_anotar --weights=/caminho/para/os/pesos.h5 --displayMaskedImages=False
+  python3 annotate.py annotateCoco --image_directory=/caminho/para/o/diretorio/de/imagens/ --label=rotulo_a_anotar --weights=/caminho/para/os/pesos.h5
   ```
   ```bash
-  python3 annotate.py annotateCustom --image_directory=/caminho/para/o/diretorio/de/imagens/ --label=rotulo_a_anotar --weights=/caminho/para/os/pesos.h5 --displayMaskedImages=False
+  python3 annotate.py annotateCustom --image_directory=/caminho/para/o/diretorio/de/imagens/ --label=rotulo_a_anotar --weights=/caminho/para/os/pesos.h5
   ```
+  Flags opcionais:
+  - `--displayMaskedImages` — Exibir as imagens com máscara aplicada.
+  - `--no-overwrite` — Pular anotação se o arquivo JSON já existir.
 
 5. Confira as anotações no /caminho/para/o/diretorio/de/imagens/ como especificado acima.
 
@@ -98,7 +108,7 @@ IMAGEM ORIGINAL            |  IMAGEM 'MASCARADA'
 Use pesos pré-treinados para MS COCO. Podemos executar diretamente da linha de comando da seguinte forma:
 ```
 # Anotar rótulo definido pelo COCO
-python3 annotate.py annotateCoco --image_directory=/caminho/para/o/diretorio/de/imagens/ --label=rotulo_a_anotar --weights=/caminho/para/os/pesos.h5 --displayMaskedImages=False
+python3 annotate.py annotateCoco --image_directory=/caminho/para/o/diretorio/de/imagens/ --label=rotulo_a_anotar --weights=/caminho/para/os/pesos.h5
 ```
 Nota: --label=rotulo_a_anotar deve estar de acordo com os rótulos do COCO dataset (em inglês  - a internacionalização deve ser feita em outra etapa). Consulte [COCO Dataset](https://cocodataset.org/) para mais detalhes.
 
@@ -109,7 +119,7 @@ Use pesos pré-treinados para rótulos personalizados. Execute diretamente da li
 
 ```
 # Annotate Custom
-python3 annotate.py annotateCustom --image_directory=/caminho/para/o/diretorio/de/imagens/ --label=rotulo_a_anotar --weights=/caminho/para/os/pesos.h5 --displayMaskedImages=False
+python3 annotate.py annotateCustom --image_directory=/caminho/para/o/diretorio/de/imagens/ --label=rotulo_a_anotar --weights=/caminho/para/os/pesos.h5
 ```
 Nota: --label=rotulo_a_anotar deve ser um rótulo para o qual tenha sido fornecido peso (ex: 'cow').
 
@@ -130,7 +140,7 @@ Abaixo O uso de train.py, que é uma versão modificada de balloon.py escrita po
 ### :clap: Apoiadores
 
 ### :twisted_rightwards_arrows: Forkers 
-[![Forkers repo roster for @mdhmz1/Auto-Annotate](https://reporoster.com/forks/dark/mdhmz1/Auto-Annotate)](https://github.com/mdhmz1/Auto-Annotate/network/members)
+[![Forkers repo roster for @VoxleOne/Auto-Annotate-BR](https://reporoster.com/forks/dark/VoxleOne/Auto-Annotate-BR)](https://github.com/VoxleOne/Auto-Annotate-BR/network/members)
 
 ##
 
