@@ -4,15 +4,15 @@ from shapely.geometry import Polygon, MultiPolygon
 from skimage import measure   
 import json
 import os
-from keras.preprocessing.image import load_img
-from keras.preprocessing.image import img_to_array
+from tensorflow.keras.preprocessing.image import load_img
+from tensorflow.keras.preprocessing.image import img_to_array
 from mrcnn import utils
 from mrcnn.visualize import display_instances
 from mrcnn.config import Config
 from mrcnn.model import MaskRCNN
 import matplotlib.pyplot as plt
 import tensorflow as tf
-tf.logging.set_verbosity(tf.logging.ERROR)
+tf.get_logger().setLevel('ERROR')
 
 
 def annotateResult(result, image_name, label):
