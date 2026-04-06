@@ -3,7 +3,7 @@
 <h1 align="center">Auto-Annotate-BR</h1>
 <p align="center">Anote imagens de todo um diretório, automaticamente, com um único comando. </p>
 
-<p align="center"><img src="https://img.shields.io/badge/version-v2.0.0-brightgreen?style=plastic" alt="Auto-Annotate Version"> <img src="https://img.shields.io/github/repo-size/VoxleOne/Auto-Annotate-BR?style=plastic" alt="repo size"> <img src="https://img.shields.io/github/stars/VoxleOne/Auto-Annotate-BR?&style=social" alt="stars"> <img src="https://img.shields.io/badge/python-3.9%20%7C%203.10-blue?style=plastic" alt="Python Version"></p>
+<p align="center"><img src="https://img.shields.io/badge/version-v3.0.0-brightgreen?style=plastic" alt="Auto-Annotate Version"> <img src="https://img.shields.io/github/repo-size/VoxleOne/Auto-Annotate-BR?style=plastic" alt="repo size"> <img src="https://img.shields.io/github/stars/VoxleOne/Auto-Annotate-BR?&style=social" alt="stars"> <img src="https://img.shields.io/badge/python-3.9%20%7C%203.10-blue?style=plastic" alt="Python Version"></p>
 
 
 
@@ -14,12 +14,12 @@ Para uma explicação mais detalhada e aplicação do código, consulte [este ar
 **Tão simples quanto dizer: "Anote todas as placas de rua (rótulo) no dataset (diretório) do carro autônomo".**
 Toda e qualquer imagem no diretório do dataset que contenha uma placa de rua é então filtrada e a anotação de segmentação é executada em um único comando.
 
-Auto-Annotate-BR fornece anotação automática por máscaras de segmentação baseada nos rótulos definidos para os objetos nas imagens de um diretório. A ferramenta é capaz de fornecer anotações automatizadas para os rótulos definidos no dataset COCO e também oferece suporte a rótulos personalizados. Ela é construída sobre a arquitetura [Mask R-CNN](https://github.com/matterport/Mask_RCNN). 
+Auto-Annotate-BR fornece anotação automática por máscaras de segmentação baseada nos rótulos definidos para os objetos nas imagens de um diretório. A ferramenta é capaz de fornecer anotações automatizadas para os rótulos definidos no dataset COCO e também oferece suporte a rótulos personalizados. A partir da versão 3.0, ela usa **YOLOv8 (Ultralytics)** como backend padrão, substituindo a antiga arquitetura Mask R-CNN. O backend legado Mask R-CNN continua disponível via `--backend maskrcnn`.
 
 ![Working Sample: ANNOTATE CUSTOM](asset/AutoAnnotate-Working_LowRes.png)
 
 A ferramenta de anotação automática funciona em dois modos - COCO e Personalizado.
-* **Anotação de rótulo COCO** - Nenhum treinamento de modelo é necessário. Basta usar os pesos do dataset COCO. Aponte para o diretório correto e as anotações estão prontas.
+* **Anotação de rótulo COCO** - Nenhum treinamento de modelo é necessário. Os pesos COCO são baixados automaticamente pelo YOLOv8. Aponte para o diretório correto e as anotações estão prontas.
 * **Anotação de rótulo personalizado** - Treine o modelo para seu rótulo personalizado. Use os pesos e anote.
 
 NOTA: Gentileza consultar o arquivo [knownIssues.md](knownIssues.md) no repositório, para checar os problemas conhecidos e sua resolução. Sinta-se à vontade para contribuir caso encontre erros/problemas durante a instalação e uso da ferramenta.
@@ -28,8 +28,33 @@ NOTA: Gentileza consultar o arquivo [knownIssues.md](knownIssues.md) no reposit�
 
 * **Python**: 3.9 ou 3.10 (testado)
 * **SO**: Linux (Ubuntu 20.04+), macOS, Windows 10+
-* **TensorFlow**: 2.10–2.15
+* **PyTorch**: ≥ 2.0 (instalado automaticamente com `ultralytics`)
 * **Docker**: Opcionalmente, use o `Dockerfile` incluído para ambiente reproduzível
+
+### Backend legado (Mask R-CNN)
+
+Se precisar usar o backend Mask R-CNN (`--backend maskrcnn`), instale também:
+* **TensorFlow**: 2.10–2.15
+* Veja `requirements-maskrcnn.txt`
+
+## Backends de Detecção
+
+| Backend | Flag | Dependência | Status |
+|---------|------|------------|--------|
+| **YOLOv8** | `--backend yolov8` (padrão) | `ultralytics` + PyTorch | ✅ Ativo |
+| **Mask R-CNN** | `--backend maskrcnn` | TensorFlow 2.x | ⚠️ Depreciado |
+
+### Tamanhos de modelo YOLOv8
+
+Use `--model_size` para escolher o modelo:
+
+| Tamanho | Flag | Modelo | Velocidade | Precisão |
+|---------|------|--------|------------|----------|
+| Nano | `--model_size nano` | yolov8n-seg.pt | ⚡ Mais rápido | Menor |
+| Small | `--model_size small` | yolov8s-seg.pt | Rápido | Boa |
+| Medium | `--model_size medium` | yolov8m-seg.pt | Equilibrado | Melhor |
+| Large | `--model_size large` | yolov8l-seg.pt | Lento | Alta |
+| XLarge | `--model_size xlarge` | yolov8x-seg.pt | Mais lento | Máxima |
 
 ## FORMATO JSON PARA ANOTAÇÃO
 
@@ -81,60 +106,132 @@ IMAGEM ORIGINAL            |  IMAGEM 'MASCARADA'
 2. Instale as dependências.
    ```bash
    pip3 install -r requirements.txt
-   
    ```
-3. **Se for anotar objetos suportados pelo COCO Dataset:**
-   Baixe pesos COCO pré-treinados (mask_rcnn_coco.h5) do [repositório oficial](https://github.com/matterport/Mask_RCNN/releases) e      armazene-os no diretório raiz (root).
-   
-   **Se for anotar objetos personalizados:**
-   Treine Mask RCNN com os mesmos pesos.
 
-4. Execute os comandos abaixo conforme o modo de uso - Anotar COCO ou Personalizado.
-  ```bash
-  python3 annotate.py annotateCoco --image_directory=/caminho/para/o/diretorio/de/imagens/ --label=rotulo_a_anotar --weights=/caminho/para/os/pesos.h5
-  ```
-  ```bash
-  python3 annotate.py annotateCustom --image_directory=/caminho/para/o/diretorio/de/imagens/ --label=rotulo_a_anotar --weights=/caminho/para/os/pesos.h5
-  ```
-  Flags opcionais:
-  - `--displayMaskedImages` — Exibir as imagens com máscara aplicada.
-  - `--no-overwrite` — Pular anotação se o arquivo JSON já existir.
+   Se precisar do backend legado Mask R-CNN:
+   ```bash
+   pip3 install -r requirements.txt -r requirements-maskrcnn.txt
+   ```
 
-5. Confira as anotações no /caminho/para/o/diretorio/de/imagens/ como especificado acima.
+3. Execute os comandos abaixo conforme o modo de uso.
 
+## Uso
 
+### Anotando no MS COCO (YOLOv8 — padrão)
 
-### Anotando no MS COCO
-Use pesos pré-treinados para MS COCO. Podemos executar diretamente da linha de comando da seguinte forma:
+Os pesos COCO são baixados automaticamente. Basta passar `--weights=coco`:
+
+```bash
+# Anotar com YOLOv8 (padrão)
+python3 annotate.py annotateCoco \
+  --image_directory=/caminho/para/imagens/ \
+  --label=person \
+  --weights=coco
+
+# Multi-rótulo com modelo grande e formato YOLO
+python3 annotate.py annotateCoco \
+  --image_directory=/caminho/para/imagens/ \
+  --label=person,car,dog \
+  --weights=coco \
+  --model_size=large \
+  --output_format=yolo \
+  --min_confidence=0.8
 ```
-# Anotar rótulo definido pelo COCO
-python3 annotate.py annotateCoco --image_directory=/caminho/para/o/diretorio/de/imagens/ --label=rotulo_a_anotar --weights=/caminho/para/os/pesos.h5
-```
-Nota: --label=rotulo_a_anotar deve estar de acordo com os rótulos do COCO dataset (em inglês  - a internacionalização deve ser feita em outra etapa). Consulte [COCO Dataset](https://cocodataset.org/) para mais detalhes.
 
+### Anotando com backend legado (Mask R-CNN)
+
+```bash
+python3 annotate.py annotateCoco \
+  --image_directory=/caminho/para/imagens/ \
+  --label=person \
+  --weights=/caminho/para/mask_rcnn_coco.h5 \
+  --backend=maskrcnn
+```
 
 ### Anotando em imagens personalizadas
 
-Use pesos pré-treinados para rótulos personalizados. Execute diretamente da linha de comando da seguinte forma:
+```bash
+# YOLOv8 com pesos personalizados
+python3 annotate.py annotateCustom \
+  --image_directory=/caminho/para/imagens/ \
+  --label=meu_rotulo \
+  --weights=/caminho/para/meus_pesos.pt
 
+# Mask R-CNN com pesos personalizados (legado)
+python3 annotate.py annotateCustom \
+  --image_directory=/caminho/para/imagens/ \
+  --label=meu_rotulo \
+  --weights=/caminho/para/meus_pesos.h5 \
+  --backend=maskrcnn
 ```
-# Annotate Custom
-python3 annotate.py annotateCustom --image_directory=/caminho/para/o/diretorio/de/imagens/ --label=rotulo_a_anotar --weights=/caminho/para/os/pesos.h5
-```
-Nota: --label=rotulo_a_anotar deve ser um rótulo para o qual tenha sido fornecido peso (ex: 'cow').
 
+### Flags opcionais
+
+| Flag | Descrição |
+|------|-----------|
+| `--backend yolov8\|maskrcnn` | Backend de detecção (padrão: yolov8) |
+| `--model_size nano\|small\|medium\|large\|xlarge` | Tamanho do modelo YOLOv8 (padrão: medium) |
+| `--output_format auto-annotate\|coco\|voc\|yolo` | Formato de saída (padrão: auto-annotate) |
+| `--min_confidence 0.0-1.0` | Limiar de confiança (padrão: 0.7) |
+| `--device cpu\|gpu` | Forçar uso de CPU ou GPU |
+| `--no-overwrite` | Pular anotação se arquivo já existir |
+| `--labels_file /caminho/labels.txt` | Carregar rótulos de arquivo |
 
 ### Treinando seu próprio dataset
 
-Leia o post original [no blog de Waleed Abdulla](https://engineering.matterport.com/splash-of-color-instance-segmentation-with-mask-r-cnn-and-tensorflow-7c761e238b46) onde ele explicou o processo, desde a anotação de imagens até o treinamento e o uso dos resultados em um aplicativo de exemplo.
+#### YOLOv8 (recomendado)
 
-Abaixo O uso de train.py, que é uma versão modificada de balloon.py escrita por Waleed para suportar apenas a fase de treinamento. [Muhammad Hamzah](https://github.com/mdhmz1) é o autor da modificação.
+```bash
+# Treinar um novo modelo YOLOv8
+python3 customTrain.py train \
+  --dataset=/caminho/para/dataset/ \
+  --weights=coco \
+  --backend=yolov8 \
+  --model_size=medium \
+  --epochs=30 \
+  --label=meu_rotulo
 ```
-    # Treinar um novo modelo a partir de pesos COCO pretreinados
-    python3 customTrain.py train --dataset=/caminho/para/dataset/personalizado/ --weights=coco
 
-    # Retomar o treinamento de um modelo já iniciado:
-    python3 customTrain.py train --dataset=/caminhp/para/dataset/personalizado --weights=last
+O dataset deve seguir a estrutura YOLO:
+```
+dataset/
+├── train/
+│   ├── images/
+│   └── labels/
+└── val/
+    ├── images/
+    └── labels/
+```
+
+#### Converter anotações VIA para formato YOLO
+
+Se você tem anotações no formato VIA JSON (usado pelo Mask R-CNN), converta-as:
+
+```bash
+python3 customTrain.py convert --dataset=/caminho/para/dataset/
+```
+
+#### Mask R-CNN (legado)
+
+```bash
+python3 customTrain.py train \
+  --dataset=/caminho/para/dataset/ \
+  --weights=coco \
+  --backend=maskrcnn
+```
+
+### Docker
+
+```bash
+# Build (YOLOv8)
+docker build -t auto-annotate-br .
+
+# Build com ambos os backends
+docker build -f Dockerfile.maskrcnn -t auto-annotate-br-full .
+
+# Executar
+docker run --rm -v /caminho/para/imagens:/data auto-annotate-br \
+  annotateCoco --image_directory=/data --label=person --weights=coco
 ```
 
 ### :clap: Apoiadores

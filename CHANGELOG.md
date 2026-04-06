@@ -4,6 +4,38 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.0.0] - 2026-04-06
+
+### Added
+- **YOLOv8 backend** as default detection backend (`--backend yolov8`), powered by the `ultralytics` package and PyTorch.
+- **Backend abstraction layer** (`backends/` module) with `DetectionBackend` ABC and `DetectionResult` dataclass, allowing pluggable detection backends.
+- `backends/yolov8.py`: YOLOv8 inference and segmentation via Ultralytics, supporting model sizes nano/small/medium/large/xlarge.
+- `backends/maskrcnn.py`: Legacy Mask R-CNN backend wrapping the vendored `mrcnn/` module.
+- `--backend` CLI argument for both `annotate.py` and `customTrain.py` to select detection backend.
+- `--model_size` CLI argument for YOLOv8 model size selection.
+- `--epochs` CLI argument for `customTrain.py` to control training duration.
+- `--label` CLI argument for `customTrain.py` to specify the custom class name.
+- `convert` command in `customTrain.py` to convert VIA JSON annotations to YOLO `.txt` format.
+- `requirements-maskrcnn.txt` for optional legacy Mask R-CNN dependencies.
+- `Dockerfile.maskrcnn` for building images with both backends.
+- `PyYAML` dependency for YOLO dataset config generation.
+
+### Changed
+- **Breaking**: Default backend changed from Mask R-CNN to YOLOv8. Use `--backend maskrcnn` to keep previous behavior.
+- **Breaking**: `COCO_DATASET_LABELS` no longer includes `'BG'` prefix. The legacy list with BG is available as `COCO_DATASET_LABELS_WITH_BG`.
+- **Breaking**: `annotateImagesInDirectory()` now takes `(backend, model, ...)` instead of `(rcnn, ...)`. Functions accept `DetectionResult` lists instead of raw Mask R-CNN result dicts.
+- `Dockerfile` base image changed from `tensorflow/tensorflow:2.10.0-gpu` to `python:3.10-slim`.
+- `requirements.txt` now installs `ultralytics` and `torch` by default. TensorFlow dependencies are optional (see `requirements-maskrcnn.txt`).
+- Image loading uses PIL directly instead of `tensorflow.keras.preprocessing.image`.
+- `customTrain.py` uses lazy imports for Mask R-CNN modules to avoid requiring TensorFlow at import time.
+
+### Deprecated
+- The Mask R-CNN backend (`--backend maskrcnn`) is deprecated and will be removed in a future version. A deprecation warning is emitted when it is used.
+
+### Removed
+- `--displayMaskedImages` CLI flag (was Mask R-CNN specific; may be re-added in a future release for all backends).
+- Top-level TensorFlow imports from `annotate.py` (moved to backend module).
+
 ## [2.0.0] - 2026-04-06
 
 ### Changed
